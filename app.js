@@ -1,6 +1,7 @@
 // Configuration
 const MEMBERSHIP_SIGNUP_URL = 'https://example.com/membership-signup';
 
+const ORDER_TYPES = ['Meals', 'Groceries'];
 const MEAL_OPTIONS = ['Vegan', 'Vegetarian', 'Omnivore (Meat or Fish)'];
 const PAYMENT_METHODS = ['Card', 'Cash', 'Voucher'];
 const DELIVERY_APPS = ['Deliveroo', 'Glovo'];
@@ -12,11 +13,44 @@ const TIME_SLOTS = [
     '2:00 PM', '2:15 PM', '2:30 PM', '2:45 PM', '3:00 PM'
 ];
 
+// Grocery items (20 items across 5 categories)
+const GROCERY_ITEMS = [
+    // Fruits (1-4)
+    { id: 1, name: 'Apple', category: 'Fruits' },
+    { id: 2, name: 'Banana', category: 'Fruits' },
+    { id: 3, name: 'Orange', category: 'Fruits' },
+    { id: 4, name: 'Mango', category: 'Fruits' },
+    // Vegetables (5-8)
+    { id: 5, name: 'Tomato', category: 'Vegetables' },
+    { id: 6, name: 'Carrot', category: 'Vegetables' },
+    { id: 7, name: 'Spinach', category: 'Vegetables' },
+    { id: 8, name: 'Broccoli', category: 'Vegetables' },
+    // Grains (9-12)
+    { id: 9, name: 'Rice', category: 'Grains' },
+    { id: 10, name: 'Wheat Flour', category: 'Grains' },
+    { id: 11, name: 'Oats', category: 'Grains' },
+    { id: 12, name: 'Quinoa', category: 'Grains' },
+    // Meat (13-16)
+    { id: 13, name: 'Chicken', category: 'Meat' },
+    { id: 14, name: 'Beef', category: 'Meat' },
+    { id: 15, name: 'Lamb', category: 'Meat' },
+    { id: 16, name: 'Fish', category: 'Meat' },
+    // Dairy (17-20)
+    { id: 17, name: 'Milk', category: 'Dairy' },
+    { id: 18, name: 'Cheese', category: 'Dairy' },
+    { id: 19, name: 'Yogurt', category: 'Dairy' },
+    { id: 20, name: 'Butter', category: 'Dairy' }
+];
+
 // State definitions
 const STATES = {
+    ORDER_TYPE_SELECT: 'ORDER_TYPE_SELECT',
     MEAL_TYPE: 'MEAL_TYPE',
     MEAL_QUANTITY: 'MEAL_QUANTITY',
     ADD_MORE: 'ADD_MORE',
+    GROCERY_ITEM_SELECT: 'GROCERY_ITEM_SELECT',
+    GROCERY_QUANTITY_INPUT: 'GROCERY_QUANTITY_INPUT',
+    GROCERY_ADD_MORE: 'GROCERY_ADD_MORE',
     PAYMENT_METHOD: 'PAYMENT_METHOD',
     VOUCHER_NUMBER: 'VOUCHER_NUMBER',
     VOUCHER_CONFIRM: 'VOUCHER_CONFIRM',
@@ -39,15 +73,19 @@ const STATES = {
 
 // Order data model
 let order = {
+    type: null, // 'meal' or 'grocery'
     items: [],
     payment: {},
     delivery: {}
 };
 
 // Current state
-let currentState = STATES.MEAL_TYPE;
+let currentState = STATES.ORDER_TYPE_SELECT;
 let previousState = null;
 let tempMealType = null;
+let selectedGroceryIds = [];
+let currentGroceryIndex = 0;
+let tempGroceryItems = [];
 
 // DOM elements
 const chatMessages = document.getElementById('chatMessages');
@@ -66,7 +104,7 @@ function init() {
 
     // Start conversation
     setTimeout(() => {
-        transition(STATES.MEAL_TYPE, null);
+        transition(STATES.ORDER_TYPE_SELECT, null);
     }, 500);
 }
 
@@ -76,8 +114,15 @@ function transition(state, userInput) {
     currentState = state;
 
     switch (state) {
+        case STATES.ORDER_TYPE_SELECT:
+            addBotMessage("Hi! What would you like to order today?");
+            showQuickReplies(ORDER_TYPES);
+            break;
+
         case STATES.MEAL_TYPE:
-            addBotMessage("Hi! What meal option would you like?");
+            addUserMessage(userInput);
+            order.type = 'meal';
+            addBotMessage("Great! What meal option would you like?");
             showQuickReplies(MEAL_OPTIONS);
             break;
 
@@ -106,13 +151,151 @@ function transition(state, userInput) {
             showQuickReplies(['Yes', 'No']);
             break;
 
+        case STATES.GROCERY_ITEM_SELECT:
+            addUserMessage(userInput);
+            order.type = 'grocery';
+
+            // Generate grocery list message
+            let groceryList = "Select groceries by typing the numbers separated by commas (e.g., 1, 3, 5):\n\n";
+
+            // Group by category
+            const categories = ['Fruits', 'Vegetables', 'Grains', 'Meat', 'Dairy'];
+            categories.forEach(category => {
+                const categoryItems = GROCERY_ITEMS.filter(item => item.category === category);
+                groceryList += `${category}:\n`;
+                categoryItems.forEach(item => {
+                    // Don't show already selected items
+                    if (!order.items.find(orderItem => orderItem.id === item.id)) {
+                        groceryList += `${item.id}. ${item.name}\n`;
+                    }
+                });
+                groceryList += '\n';
+            });
+
+            addBotMessage(groceryList);
+            hideQuickReplies();
+            break;
+
+        case STATES.GROCERY_QUANTITY_INPUT:
+            // Validate input: comma-separated numbers
+            const input = userInput.trim();
+            const numberPattern = /^[\d\s,]+$/;
+
+            if (!numberPattern.test(input)) {
+                addUserMessage(userInput);
+                addBotMessage("Please enter valid numbers separated by commas (e.g., 1, 3, 5).");
+                currentState = STATES.GROCERY_ITEM_SELECT;
+                return;
+            }
+
+            // Parse the input
+            const selectedIds = input.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 20);
+
+            if (selectedIds.length === 0) {
+                addUserMessage(userInput);
+                addBotMessage("No valid items selected. Please enter numbers between 1 and 20.");
+                currentState = STATES.GROCERY_ITEM_SELECT;
+                return;
+            }
+
+            // Check if items are already selected
+            const alreadySelected = selectedIds.filter(id =>
+                order.items.find(item => item.id === id)
+            );
+
+            if (alreadySelected.length > 0) {
+                addUserMessage(userInput);
+                addBotMessage(`Items ${alreadySelected.join(', ')} are already in your cart. Please select different items.`);
+                currentState = STATES.GROCERY_ITEM_SELECT;
+                return;
+            }
+
+            // Store selected IDs and start asking quantities
+            selectedGroceryIds = selectedIds;
+            currentGroceryIndex = 0;
+            tempGroceryItems = [];
+
+            addUserMessage(userInput);
+
+            // Ask for first item's quantity
+            const firstItem = GROCERY_ITEMS.find(item => item.id === selectedGroceryIds[0]);
+            addBotMessage(`How many ${firstItem.name} would you like? (Enter a number between 1-99)`);
+            hideQuickReplies();
+            break;
+
+        case STATES.GROCERY_ADD_MORE:
+            const qty = parseInt(userInput);
+
+            if (isNaN(qty) || qty < 1 || qty > 99) {
+                addUserMessage(userInput);
+                addBotMessage("Please enter a valid quantity between 1 and 99.");
+                currentState = STATES.GROCERY_QUANTITY_INPUT;
+
+                // Re-ask for current item
+                const currentItem = GROCERY_ITEMS.find(item => item.id === selectedGroceryIds[currentGroceryIndex]);
+                setTimeout(() => {
+                    addBotMessage(`How many ${currentItem.name} would you like? (Enter a number between 1-99)`);
+                }, 1000);
+                return;
+            }
+
+            // Save the current item with quantity
+            const item = GROCERY_ITEMS.find(i => i.id === selectedGroceryIds[currentGroceryIndex]);
+            tempGroceryItems.push({
+                id: item.id,
+                name: item.name,
+                category: item.category,
+                qty: qty
+            });
+
+            addUserMessage(userInput);
+            currentGroceryIndex++;
+
+            // Check if there are more items to ask about
+            if (currentGroceryIndex < selectedGroceryIds.length) {
+                const nextItem = GROCERY_ITEMS.find(i => i.id === selectedGroceryIds[currentGroceryIndex]);
+                addBotMessage(`How many ${nextItem.name} would you like? (Enter a number between 1-99)`);
+                currentState = STATES.GROCERY_QUANTITY_INPUT;
+            } else {
+                // All quantities collected, add to order
+                order.items.push(...tempGroceryItems);
+                tempGroceryItems = [];
+                selectedGroceryIds = [];
+                currentGroceryIndex = 0;
+
+                // Ask if they want to add more
+                addBotMessage("Add more grocery items?");
+                showQuickReplies(['Yes', 'No']);
+            }
+            break;
+
         case STATES.PAYMENT_METHOD:
             addUserMessage(userInput);
             if (userInput === 'Yes') {
-                addBotMessage("Choose the next item:");
-                showQuickReplies(MEAL_OPTIONS);
-                currentState = STATES.MEAL_TYPE;
-                // Don't call transition again, just update state
+                if (order.type === 'meal') {
+                    addBotMessage("Choose the next item:");
+                    showQuickReplies(MEAL_OPTIONS);
+                    currentState = STATES.MEAL_TYPE;
+                } else if (order.type === 'grocery') {
+                    // Show grocery list again
+                    let groceryList = "Select more groceries by typing the numbers separated by commas (e.g., 1, 3, 5):\n\n";
+
+                    const categories = ['Fruits', 'Vegetables', 'Grains', 'Meat', 'Dairy'];
+                    categories.forEach(category => {
+                        const categoryItems = GROCERY_ITEMS.filter(item => item.category === category);
+                        groceryList += `${category}:\n`;
+                        categoryItems.forEach(item => {
+                            if (!order.items.find(orderItem => orderItem.id === item.id)) {
+                                groceryList += `${item.id}. ${item.name}\n`;
+                            }
+                        });
+                        groceryList += '\n';
+                    });
+
+                    addBotMessage(groceryList);
+                    hideQuickReplies();
+                    currentState = STATES.GROCERY_ITEM_SELECT;
+                }
                 return;
             } else {
                 addBotMessage("How would you like to pay?");
@@ -322,10 +505,17 @@ function transition(state, userInput) {
             let summary = "Summary:\n\n";
 
             // Items
-            summary += "Items:\n";
-            order.items.forEach(item => {
-                summary += `• ${item.type} × ${item.qty}\n`;
-            });
+            if (order.type === 'meal') {
+                summary += "Meal Items:\n";
+                order.items.forEach(item => {
+                    summary += `• ${item.type} × ${item.qty}\n`;
+                });
+            } else if (order.type === 'grocery') {
+                summary += "Grocery Items:\n";
+                order.items.forEach(item => {
+                    summary += `• ${item.name} × ${item.qty}\n`;
+                });
+            }
             summary += "\n";
 
             // Payment
@@ -371,6 +561,14 @@ function handleUserInput(input) {
     const trimmedInput = input.trim();
 
     switch (currentState) {
+        case STATES.ORDER_TYPE_SELECT:
+            if (trimmedInput === 'Meals') {
+                transition(STATES.MEAL_TYPE, trimmedInput);
+            } else if (trimmedInput === 'Groceries') {
+                transition(STATES.GROCERY_ITEM_SELECT, trimmedInput);
+            }
+            break;
+
         case STATES.MEAL_TYPE:
             if (MEAL_OPTIONS.includes(trimmedInput)) {
                 transition(STATES.MEAL_QUANTITY, trimmedInput);
@@ -383,11 +581,21 @@ function handleUserInput(input) {
 
         case STATES.ADD_MORE:
             if (trimmedInput === 'Yes' || trimmedInput === 'No') {
-                if (trimmedInput === 'Yes') {
-                    transition(STATES.MEAL_TYPE, trimmedInput);
-                } else {
-                    transition(STATES.PAYMENT_METHOD, trimmedInput);
-                }
+                transition(STATES.PAYMENT_METHOD, trimmedInput);
+            }
+            break;
+
+        case STATES.GROCERY_ITEM_SELECT:
+            transition(STATES.GROCERY_QUANTITY_INPUT, trimmedInput);
+            break;
+
+        case STATES.GROCERY_QUANTITY_INPUT:
+            transition(STATES.GROCERY_ADD_MORE, trimmedInput);
+            break;
+
+        case STATES.GROCERY_ADD_MORE:
+            if (trimmedInput === 'Yes' || trimmedInput === 'No') {
+                transition(STATES.PAYMENT_METHOD, trimmedInput);
             }
             break;
 
@@ -608,18 +816,22 @@ function handleTextSubmit() {
 
 function restart() {
     order = {
+        type: null,
         items: [],
         payment: {},
         delivery: {}
     };
     tempMealType = null;
+    selectedGroceryIds = [];
+    currentGroceryIndex = 0;
+    tempGroceryItems = [];
     previousState = null;
-    currentState = STATES.MEAL_TYPE;
+    currentState = STATES.ORDER_TYPE_SELECT;
     chatMessages.innerHTML = '';
     hideQuickReplies();
 
     setTimeout(() => {
-        transition(STATES.MEAL_TYPE, null);
+        transition(STATES.ORDER_TYPE_SELECT, null);
     }, 500);
 }
 
